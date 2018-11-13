@@ -232,11 +232,19 @@ void fs_dir() {
         printf("disc not mounted\n");
         return;
     }
-
     // TODO: list files
-    // printf( "%u: %s, size: %u bytes\n", dirent_number, file_name, file_size)
+    union fs_block block;
+    disk_read(SBLOCK, block.data);
+    union fs_dirent dirBlock = block.super.dir[0];
+    uint16_t dirent_number = dirBlock.ex;
+    char file_name[FNAMESZ] = dirBlock.name;
+    union fs_block b
+    int i = 0;
+    while(disk_read(dirBlock.blocks[i],b))
 
 
+
+    printf( "%u: %s, size: %u bytes\n", dirent_number, file_name, file_size);
 }
 
 /*****************************************************/
