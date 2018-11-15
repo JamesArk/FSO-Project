@@ -220,14 +220,13 @@ int fs_delete(char *name) {
 
     // TODO: delete file: free it's dirent, extents and data blocks
     union fs_block block;
-    for(int dirBlock = 0; dirBlock < MAXDIRSZ; dirBlock++) {
-        int b = superB.dir[dirBlock];
+    for(int i = 0; i < MAXDIRSZ; i++) {
+        int b = superB.dir[i];
         disk_read(b,block.data);
         for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
-            if(strcmp(fnmae,block.super.dir[dirBlock]) == 0) {
+            if(strncmp(block.dirent[j].name, name, FNAMESZ) == 0) {
                 blockBitMap[superB.dir[i]] = FREE;
                 block.dirent[j].st = TEMPTY;
-                blockBitMap[block.dirent]
                 for(int k = 0; k < FBLOCKS; k++) {
                     blockBitMap[block.dirent[i].blocks[j]] = FREE;
                     block.dirent[j].blocks[k] = 0;
