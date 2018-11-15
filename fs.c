@@ -237,10 +237,20 @@ void fs_dir() {
     // TODO: list files
     // printf( "%u: %s, size: %u bytes\n", dirent_number, file_name, file_size)
 
-    for(int i = 0; i < MAXDIRSZ; i++) {
-      char name[FNAMESZ] = superB.dirent[i].name;
+    union fs_block block;
+    for(unsigned int i = 0; i < MAXDIRSZ; i++) {
+      if(superB.dir[i] != 0) {
+        disk_read(i,block.data);
+        for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
+          struct fs_dirent dirent = block.dirent[j];
+          char file_name[LABELSZ+1] = "";
+            strDecode(file_name, dirent.name, LABELSZ);
+          uint16_t file_size = dirent.ss;
+          uint16_t dirent_number = j;
+          printf( "%u: %s, size: %u bytes\n", dirent_number, file_name, file_size);
+        }
+      }
     }
-
 }
 
 /*****************************************************/
@@ -330,19 +340,21 @@ int fs_mount() {
     //       check all directory
 
 union fs_block tempBlock;
-
-    for(int i = 0; i < MAXDIRSZ; i++)
+unsigned int i;
+    for(i = 0; i < MAXDIRSZ; i++)
       blockBitMap[i] = FREE;
 
 
-    for(int i = 0; i < MAXDIRSZ; i++) {
+    for( i = 0; i < MAXDIRSZ; i++) {
       if(superB.dir[i] != 0) {
         blockBitMap[superB.dir[i]] = NOT_FREE;
-        for(int j = 0; j < DIRENTS_PER_BLOCK; j++)
-            if(tempBlock.dirent[j].st == TFILE)
+        for(unsigned int j = 0; j < DIRENTS_PER_BLOCK; j++){
+          disk_read(superB.dir[i], tempBlock.data);
+            if(tempBlock.dirent[j].st != TEMPTY)
               for(int k = 0; k < FBLOCKS; k++)
-                if(tempBlock.dirent[j].block[k] != 0)
-                  blockBitMap[tempBlock.[dirent[j].blocks[k]]] = NOT_FREE;
+                if(tempBlock.dirent[j].blocks[k] != 0)
+                  blockBitMap[tempBlock.dirent[j].blocks[k]] = NOT_FREE;
+        }
       }
     }
 
