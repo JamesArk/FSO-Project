@@ -243,11 +243,13 @@ void fs_dir() {
         disk_read(i,block.data);
         for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
           struct fs_dirent dirent = block.dirent[j];
-          char file_name[LABELSZ+1] = "";
+          char file_name[LABELSZ+1];
             strDecode(file_name, dirent.name, LABELSZ);
           uint16_t file_size = dirent.ss;
-          uint16_t dirent_number = j;
-          printf( "%u: %s, size: %u bytes\n", dirent_number, file_name, file_size);
+          if(file_size != 0) {
+              uint16_t dirent_number = (uint16_t) j;
+              printf("%u: %s, size: %u bytes\n", dirent_number, file_name, file_size);
+          }
         }
       }
     }
@@ -341,8 +343,8 @@ int fs_mount() {
 
 union fs_block tempBlock;
 unsigned int i;
-    for(i = 0; i < MAXDIRSZ; i++)
-      blockBitMap[i] = FREE;
+    for(i = 1; i < MAXDIRSZ; i++)
+      freeBlock(i);
 
 
     for( i = 0; i < MAXDIRSZ; i++) {
@@ -357,7 +359,6 @@ unsigned int i;
         }
       }
     }
-
     return 1;
 }
 
