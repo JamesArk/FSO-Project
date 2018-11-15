@@ -237,6 +237,10 @@ void fs_dir() {
     // TODO: list files
     // printf( "%u: %s, size: %u bytes\n", dirent_number, file_name, file_size)
 
+    for(int i = 0; i < MAXDIRSZ; i++) {
+      char name[FNAMESZ] = superB.dirent[i].name;
+    }
+
 }
 
 /*****************************************************/
