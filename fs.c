@@ -203,6 +203,7 @@ int writeFileEntry(int idx, struct fs_dirent entry) {
     // notice: directory may need to grow!!
 
 
+
     return idx;
 }
 
@@ -232,19 +233,10 @@ void fs_dir() {
         printf("disc not mounted\n");
         return;
     }
+
     // TODO: list files
-    union fs_block block;
-    disk_read(SBLOCK, block.data);
-    union fs_dirent dirBlock = block.super.dir[0];
-    uint16_t dirent_number = dirBlock.ex;
-    char file_name[FNAMESZ] = dirBlock.name;
-    union fs_block b
-    int i = 0;
-    while(disk_read(dirBlock.blocks[i],b))
+    // printf( "%u: %s, size: %u bytes\n", dirent_number, file_name, file_size)
 
-
-
-    printf( "%u: %s, size: %u bytes\n", dirent_number, file_name, file_size);
 }
 
 /*****************************************************/
@@ -333,7 +325,22 @@ int fs_mount() {
     // TODO: blockBitMap[i]=NOT_FREE if block i is in use
     //       check all directory
 
+union fs_block tempBlock;
 
+    for(int i = 0; i < MAXDIRSZ; i++)
+      blockBitMap[i] = FREE;
+
+
+    for(int i = 0; i < MAXDIRSZ; i++) {
+      if(superB.dir[i] != 0) {
+        blockBitMap[superB.dir[i]] = NOT_FREE;
+        for(int j = 0; j < DIRENTS_PER_BLOCK; j++)
+            if(tempBlock.dirent[j].st == TFILE)
+              for(int k = 0; k < FBLOCKS; k++)
+                if(tempBlock.dirent[j].block[k] != 0)
+                  blockBitMap[tempBlock.[dirent[j].blocks[k]]] = NOT_FREE;
+      }
+    }
 
     return 1;
 }
