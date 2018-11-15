@@ -219,7 +219,22 @@ int fs_delete(char *name) {
     strEncode(fname, name, FNAMESZ);
 
     // TODO: delete file: free it's dirent, extents and data blocks
-
+    union fs_block block;
+    for(int dirBlock = 0; dirBlock < MAXDIRSZ; dirBlock++) {
+        int b = superB.dir[dirBlock];
+        disk_read(b,block.data);
+        for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
+            if(strcmp(fnmae,block.super.dir[dirBlock]) == 0) {
+                blockBitMap[superB.dir[i]] = FREE;
+                block.dirent[j].st = TEMPTY;
+                blockBitMap[block.dirent]
+                for(int k = 0; k < FBLOCKS; k++) {
+                    blockBitMap[block.dirent[i].blocks[j]] = FREE;
+                    block.dirent[j].blocks[k] = 0;
+                }
+            }
+        }
+    }
 
 
     return 0;
@@ -243,8 +258,8 @@ void fs_dir() {
         disk_read(i,block.data);
         for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
           struct fs_dirent dirent = block.dirent[j];
-          char file_name[LABELSZ+1];
-            strDecode(file_name, dirent.name, LABELSZ);
+          char file_name[FNAMESZ+1];
+          strDecode(file_name, dirent.name, FNAMESZ);
           uint16_t file_size = dirent.ss;
           if(file_size != 0) {
               uint16_t dirent_number = (uint16_t) j;
@@ -374,6 +389,7 @@ int fs_read(char *name, char *data, int length, int offset) {
     strEncode(fname, name, FNAMESZ);
 
     // TODO: read file data
+
 
     return -1; // return read bytes or -1
 }
