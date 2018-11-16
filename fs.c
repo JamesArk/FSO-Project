@@ -220,11 +220,24 @@ int fs_delete(char *name) {
 
     // TODO: delete file: free it's dirent, extents and data blocks
     union fs_block block;
-    for(int i = 0; i < MAXDIRSZ; i++) {
+    disk_read(1,block.data);
+    struct fs_dirent* entry = &block.dirent[0];
+    int result = 1;
+
+    for(int i = 0; i < MAXDIRSZ && superB.dir[i]; i++) {
+        if(readFileEntry(fname,i,entry) != -1) {
+            result = 0;
+            entry->st = TEMPTY;
+            for(int j = 0; j < FBLOCKS && entry->blocks[j]; j++)
+                freeBlock(entry->blocks[j]);
+        }
+    }
+
+    /*for(int i = 0; i < MAXDIRSZ && superB.dir[dirblk]; i++) {
         unsigned int b = superB.dir[i];
         disk_read(b,block.data);
         for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
-            if(block.dirent[j].name == fname) {
+            if(strncmp(block.dirent[j].name,fname,FNAMESZ) == 0) {
                 block.dirent[j].st = TEMPTY;
                 for(int k = 0; k < FBLOCKS; k++) {
                     blockBitMap[block.dirent[i].blocks[j]] = FREE;
@@ -233,9 +246,9 @@ int fs_delete(char *name) {
                 return 0;
             }
         }
-    }
+    }*/
 
-    return 1;
+    return result;
 }
 
 /*****************************************************/
@@ -251,8 +264,7 @@ void fs_dir() {
     // printf( "%u: %s, size: %u bytes\n", dirent_number, file_name, file_size)
 
     union fs_block block;
-    for(unsigned int i = 0; i < MAXDIRSZ; i++) {
-      if(superB.dir[i] != 0) {
+    for(unsigned int i = 0; i < MAXDIRSZ && superB.dir[i]; i++) {
         disk_read(i,block.data);
         for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
           struct fs_dirent dirent = block.dirent[j];
@@ -263,7 +275,6 @@ void fs_dir() {
               uint16_t dirent_number = (uint16_t) j;
               printf("%u: %s, size: %u bytes\n", dirent_number, file_name, file_size);
           }
-        }
       }
     }
 }
@@ -354,23 +365,20 @@ int fs_mount() {
     // TODO: blockBitMap[i]=NOT_FREE if block i is in use
     //       check all directory
 
-union fs_block tempBlock;
-unsigned int i;
+    union fs_block tempBlock;
+    unsigned int i;
     for(i = 1; i < MAXDIRSZ; i++)
       freeBlock(i);
 
 
-    for( i = 0; i < MAXDIRSZ; i++) {
-      if(superB.dir[i] != 0) {
+    for( i = 0; i < MAXDIRSZ && superB.dir[i]; i++) {
         blockBitMap[superB.dir[i]] = NOT_FREE;
-        for(unsigned int j = 0; j < DIRENTS_PER_BLOCK; j++){
-          disk_read(superB.dir[i], tempBlock.data);
-            if(tempBlock.dirent[j].st != TEMPTY)
-              for(int k = 0; k < FBLOCKS; k++)
-                if(tempBlock.dirent[j].blocks[k] != 0)
-                  blockBitMap[tempBlock.dirent[j].blocks[k]] = NOT_FREE;
+        for (unsigned int j = 0; j < DIRENTS_PER_BLOCK; j++) {
+            disk_read(superB.dir[i], tempBlock.data);
+            if (tempBlock.dirent[j].st != TEMPTY)
+                for (int k = 0; k < FBLOCKS && tempBlock.dirent[j].blocks[k]; k++)
+                    blockBitMap[tempBlock.dirent[j].blocks[k]] = NOT_FREE;
         }
-      }
     }
     return 1;
 }
