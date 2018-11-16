@@ -396,8 +396,35 @@ int fs_read(char *name, char *data, int length, int offset) {
 
     // TODO: read file data
 
+    int blockNumberFile = offset/BLOCKSZ;
+    int extNumber = blockNumberFile / FBLOCKS;
+    int blockNumberEntry = blockNumberFile % FBLOCKS;
+    int blockOffset = offset % BLOCKSZ;
+    int numberOfBlocksToRead = (length + blockOffset)/BLOCKSZ +1;
+    int lastBlockOffset = (length + offset) -BLOCKSZ*(blockNumberFile + numberOfBlocksToRead -1);
+    int nEntries = (blockNumberEntry + numberOfBlocksToRead)/FBLOCKS +1;
+    int extents[] = malloc(sizeof(int)*nEntries);
+    int i;
+    for(i = 0; i < nEntries; i++)
+        extents[i] = extNumber + i;
 
-    return -1; // return read bytes or -1
+
+    union fs_block block;
+    disk_read(1,block.data);
+    struct fs_dirent* entry = &block.dirent[0];
+    for(i = 0;i < nEntries;i++){
+        if(readFileEntry(fname,extents[i],entry) == -1)
+            return -1;
+        else {
+            for (int k = blockNumberEntry; k < FBLOCKS && numberOfBlocksToRead > 0; k++) {
+                disk_read(entry->blocks[k], block.data);
+                for (int j = 0; j < length; j++) {
+
+                }
+                numberOfBlocksToRead--;
+            }
+        }
+    }
 }
 
 /****************************************************************/
