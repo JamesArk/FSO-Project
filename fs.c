@@ -224,7 +224,7 @@ int fs_delete(char *name) {
     struct fs_dirent* entry = &block.dirent[0];
     int result = 1;
 
-    for(int i = 0; i < MAXDIRSZ && superB.dir[i]; i++) {
+    for(uint16_t i = 0; i < MAXDIRSZ && superB.dir[i]; i++) {
         if(readFileEntry(fname,i,entry) != -1) {
             result = 0;
             entry->st = TEMPTY;
@@ -396,23 +396,22 @@ int fs_read(char *name, char *data, int length, int offset) {
 
     // TODO: read file data
 
-    int blockNumberFile = offset/BLOCKSZ;
-    int extNumber = blockNumberFile / FBLOCKS;
-    int blockNumberEntry = blockNumberFile % FBLOCKS;
-    int blockOffset = offset % BLOCKSZ;
-    int numberOfBlocksToRead = (length + blockOffset)/BLOCKSZ +1;
-    int lastBlockOffset = (length + offset) -BLOCKSZ*(blockNumberFile + numberOfBlocksToRead -1);
+    int blockNOfFile = offset/BLOCKSZ;
+    uint16_t firstExtentN = (uint16_t) (blockNOfFile / FBLOCKS);
+    int blockNumberEntry = blockNOfFile % FBLOCKS;
+    int firstBlockOffset = offset % BLOCKSZ;
+    int numberOfBlocksToRead = (length + firstBlockOffset)/BLOCKSZ +1;
+    int lastBlockOffset = (length + offset) -BLOCKSZ*(blockNOfFile + numberOfBlocksToRead -1);
     int nEntries = (blockNumberEntry + numberOfBlocksToRead)/FBLOCKS +1;
-    int extents[] = malloc(sizeof(int)*nEntries);
+    uint16_t* extents = malloc(sizeof(uint16_t)*nEntries);
     int i;
     for(i = 0; i < nEntries; i++)
-        extents[i] = extNumber + i;
-
+        extents[i] =(uint16_t) (firstExtentN + i);
 
     union fs_block block;
     disk_read(1,block.data);
     struct fs_dirent* entry = &block.dirent[0];
-    for(i = 0;i < nEntries;i++){
+    for(i = 0; i < nEntries; i++){
         if(readFileEntry(fname,extents[i],entry) == -1)
             return -1;
         else {
@@ -425,6 +424,7 @@ int fs_read(char *name, char *data, int length, int offset) {
             }
         }
     }
+    return -1;
 }
 
 /****************************************************************/
