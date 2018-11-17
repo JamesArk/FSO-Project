@@ -202,9 +202,27 @@ int writeFileEntry(int idx, struct fs_dirent entry) {
     // and write to directory on disk
 
     // notice: directory may need to grow!!
+    union fs_block block;
+    int blockNumber;
+    if(idx == -1) {
+        for(int i = 0; i < MAXDIRSZ && superB.dir[i]; i++) {
+            int b = superB.dir[i];
+            disk_read(b,block.data);
+            for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
+                if(block.dirent[j].st == TEMPTY) {
+                    block.dirent[j] = entry;
+                    idx = readFileEntry(block.dirent[j].name,entry.ex,&entry);
+                }
+            }
+        }
+        blockNumber = allocBlock();
+        superB.fssize++;
+        disk_read(blockNumber,block.data);
+        block.dirent[0] = entry;
+    } else {
 
 
-
+    }
     return idx;
 }
 
