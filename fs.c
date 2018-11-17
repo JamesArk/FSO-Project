@@ -124,6 +124,7 @@ void strEncode(char *dst, char *str, int len) {
             dst[i] = '?'; // invalid char?
     for (; i < len; i++)
         dst[i] = ' '; // fill with space
+
 }
 
 /**
@@ -415,14 +416,28 @@ int fs_read(char *name, char *data, int length, int offset) {
         if(readFileEntry(fname,extents[i],entry) == -1)
             return -1;
         else {
-            for (int k = blockNumberEntry; k < FBLOCKS && numberOfBlocksToRead > 0; k++) {
+            int nBlocksToRead = numberOfBlocksToRead;
+            int currentPos = 0;
+            for (int k = blockNumberEntry; k < FBLOCKS && nBlocksToRead > 0; k++) {
                 disk_read(entry->blocks[k], block.data);
-                for (int j = 0; j < length; j++) {
 
-                }
-                numberOfBlocksToRead--;
+                    if (nBlocksToRead == numberOfBlocksToRead) {
+                        for (int l = 0; l < BLOCKSZ; l++) {
+                            data[l] = block.data[l + firstBlockOffset];
+                            currentPos = l;
+                        }
+                    } else if (nBlocksToRead == 1) {
+                        for(int l = 0; l < lastBlockOffset; l++)
+                            data[currentPos+1+l] = block.data[l];
+                    } else {
+                        for (int l = 0; l < BLOCKSZ; l++)
+                            data[currentPos+1+l] = block.data[l];
+                    }
+
+                nBlocksToRead--;
             }
         }
+
     }
     return -1;
 }
