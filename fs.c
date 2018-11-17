@@ -428,10 +428,12 @@ int fs_read(char *name, char *data, int length, int offset) {
                         }
                     } else if (nBlocksToRead == 1) {
                         for(int l = 0; l < lastBlockOffset; l++)
-                            data[currentPos+1+l] = block.data[l];
+                            data[currentPos + 1 + l] = block.data[l];
+                        currentPos += lastBlockOffset;
                     } else {
                         for (int l = 0; l < BLOCKSZ; l++)
                             data[currentPos+1+l] = block.data[l];
+                        currentPos += BLOCKSZ;
                     }
 
                 nBlocksToRead--;
