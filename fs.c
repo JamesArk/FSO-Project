@@ -422,9 +422,16 @@ int fs_read(char *name, char *data, int length, int offset) {
                 disk_read(entry->blocks[k], block.data);
 
                     if (nBlocksToRead == numberOfBlocksToRead) {
-                        for (int l = 0; l < BLOCKSZ; l++) {
-                            data[l] = block.data[l + firstBlockOffset];
-                            currentPos = l;
+                        if(numberOfBlocksToRead == 1) {
+                            for (int l = 0; l < length; l++) {
+                                data[l] = block.data[l + firstBlockOffset];
+                                currentPos = l;
+                            }
+                        } else {
+                            for(int l = 0; l < BLOCKSZ-firstBlockOffset; l++) {
+                                data[l] = block.data[l+firstBlockOffset];
+                                currentPos = l;
+                            }
                         }
                     } else if (nBlocksToRead == 1) {
                         for(int l = 0; l < lastBlockOffset; l++)
