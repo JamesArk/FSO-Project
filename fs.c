@@ -211,25 +211,31 @@ int writeFileEntry(int idx, struct fs_dirent entry) {
             for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
                 if(block.dirent[j].st == TEMPTY) {
                     block.dirent[j] = entry;
-                    return readFileEntry(entry.name,entry.ex,&entry);
+                    disk_write(b,block.data);
+                    return b * DIRENTS_PER_BLOCK + j;
                 }
             }
         }
         blockNumber = allocBlock();
         disk_read(blockNumber,block.data);
         block.dirent[0] = entry;
+        int i;
+        for(i = 0; i < MAXDIRSZ && superB.dir[i]; i++);
+        superB.dir[i] =(uint16_t) blockNumber;
+        disk_write(blockNumber,block.data);
         return readFileEntry(entry.name,entry.ex,&entry);
     } else {
         int numberBlock = idx / DIRENTS_PER_BLOCK;
-        disk_read(numberBlock,block.data);
+        disk_read(superB.dir[numberBlock],block.data);
         block.dirent[idx-numberBlock*DIRENTS_PER_BLOCK] = entry;
+        disk_write(superB.dir[numberBlock],block.data);
         return idx;
     }
 }
 
 /****************************************************************/
 
-int fs_delete(char *name) { // devemos ter em consideração o caso em que esta é a última dirent do bloco (colocar o bloco como livre)
+int fs_delete(char *name) {
 
     if (superB.magic != FS_MAGIC) {
         printf("disc not mounted\n");
@@ -244,31 +250,15 @@ int fs_delete(char *name) { // devemos ter em consideração o caso em que esta 
     struct fs_dirent* entry = &block.dirent[0];
     int result = 1;
 
-    for(uint16_t i = 0; i < MAXDIRSZ && superB.dir[i]; i++) {
+    for(uint16_t i = 0; i < MAXDIRSZ && superB.dir[i]; i++)
         if(readFileEntry(fname,i,entry) != -1) {
             result = 0;
             entry->st = TEMPTY;
-            for(int j = 0; j < FBLOCKS && entry->blocks[j]; j++) {
+            for(int j = 0; j < FBLOCKS && entry->blocks[j]; j++)
                 freeBlock(entry->blocks[j]);
-            }
 
-        }
-    }
-
-    /*for(int i = 0; i < MAXDIRSZ && superB.dir[dirblk]; i++) {
-        unsigned int b = superB.dir[i];
-        disk_read(b,block.data);
-        for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
-            if(strncmp(block.dirent[j].name,fname,FNAMESZ) == 0) {
-                block.dirent[j].st = TEMPTY;
-                for(int k = 0; k < FBLOCKS; k++) {
-                    blockBitMap[block.dirent[i].blocks[j]] = FREE;
-                    block.dirent[j].blocks[k] = FREE;
-                }
-                return 0;
-            }
-        }
-    }*/
+        } else
+            return result;
 
     return result;
 }
@@ -287,9 +277,10 @@ void fs_dir() {
 
     union fs_block block;
     for(unsigned int i = 0; i < MAXDIRSZ && superB.dir[i]; i++) {
-        disk_read(i,block.data);
+        disk_read(superB.dir[i],block.data);
         for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
           struct fs_dirent dirent = block.dirent[j];
+
           char file_name[FNAMESZ+1];
           strDecode(file_name, dirent.name, FNAMESZ);
           uint16_t file_size = dirent.ss;
