@@ -211,24 +211,25 @@ int writeFileEntry(int idx, struct fs_dirent entry) {
             for(int j = 0; j < DIRENTS_PER_BLOCK; j++) {
                 if(block.dirent[j].st == TEMPTY) {
                     block.dirent[j] = entry;
-                    idx = readFileEntry(block.dirent[j].name,entry.ex,&entry);
+                    return readFileEntry(entry.name,entry.ex,&entry);
                 }
             }
         }
         blockNumber = allocBlock();
-        superB.fssize++;
         disk_read(blockNumber,block.data);
         block.dirent[0] = entry;
+        return readFileEntry(entry.name,entry.ex,&entry);
     } else {
-
-
+        int numberBlock = idx / DIRENTS_PER_BLOCK;
+        disk_read(numberBlock,block.data);
+        block.dirent[idx-numberBlock*DIRENTS_PER_BLOCK] = entry;
+        return idx;
     }
-    return idx;
 }
 
 /****************************************************************/
 
-int fs_delete(char *name) {
+int fs_delete(char *name) { // devemos ter em consideração o caso em que esta é a última dirent do bloco (colocar o bloco como livre)
 
     if (superB.magic != FS_MAGIC) {
         printf("disc not mounted\n");
@@ -247,8 +248,10 @@ int fs_delete(char *name) {
         if(readFileEntry(fname,i,entry) != -1) {
             result = 0;
             entry->st = TEMPTY;
-            for(int j = 0; j < FBLOCKS && entry->blocks[j]; j++)
+            for(int j = 0; j < FBLOCKS && entry->blocks[j]; j++) {
                 freeBlock(entry->blocks[j]);
+            }
+
         }
     }
 
