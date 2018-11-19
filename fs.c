@@ -424,43 +424,50 @@ int fs_read(char *name, char *data, int length, int offset) {
     union fs_block block;
     disk_read(1,block.data);
     struct fs_dirent* entry = &block.dirent[0];
+
     for(i = 0; i < nEntries; i++){
         if(readFileEntry(fname,extents[i],entry) == -1)
-            return -1;
+            if(i != 0)
+                return -1;
+            else
+                return 0;
         else {
             int nBlocksToRead = numberOfBlocksToRead;
             int currentPos = 0;
             for (int k = blockNumberEntry; k < FBLOCKS && nBlocksToRead > 0; k++) {
-                disk_read(entry->blocks[k], block.data);
-
+                if(entry->blocks[k] == 0)
+                    return 0;
+                else {
+                    disk_read(entry->blocks[k], block.data);
                     if (nBlocksToRead == numberOfBlocksToRead) {
-                        if(numberOfBlocksToRead == 1) {
+                        if (numberOfBlocksToRead == 1) {
                             for (int l = 0; l < length; l++) {
                                 data[l] = block.data[l + firstBlockOffset];
                                 currentPos = l;
                             }
                         } else {
-                            for(int l = 0; l < BLOCKSZ-firstBlockOffset; l++) {
-                                data[l] = block.data[l+firstBlockOffset];
+                            for (int l = 0; l < BLOCKSZ - firstBlockOffset; l++) {
+                                data[l] = block.data[l + firstBlockOffset];
                                 currentPos = l;
                             }
                         }
                     } else if (nBlocksToRead == 1) {
-                        for(int l = 0; l < lastBlockOffset; l++)
+                        for (int l = 0; l < lastBlockOffset; l++)
                             data[currentPos + 1 + l] = block.data[l];
                         currentPos += lastBlockOffset;
                     } else {
                         for (int l = 0; l < BLOCKSZ; l++)
-                            data[currentPos+1+l] = block.data[l];
+                            data[currentPos + 1 + l] = block.data[l];
                         currentPos += BLOCKSZ;
                     }
 
-                nBlocksToRead--;
+                    nBlocksToRead--;
+                }
             }
         }
 
     }
-    return -1;
+    return length;
 }
 
 /****************************************************************/
@@ -475,6 +482,79 @@ int fs_write(char *name, char *data, int length, int offset) {
     strEncode(fname, name, FNAMESZ);
 
     // TODO: write data to file
+    int blockNOfFile = offset/BLOCKSZ;
+    uint16_t firstExtentN = (uint16_t) (blockNOfFile / FBLOCKS);
+    int blockNumberEntry = blockNOfFile % FBLOCKS;
+    int firstBlockOffset = offset % BLOCKSZ;
+    int numberOfBlocksToWrite = (length + firstBlockOffset)/BLOCKSZ +1;
+    int lastBlockOffset = (length + offset) -BLOCKSZ*(blockNOfFile + numberOfBlocksToWrite -1);
+    int nEntries = (blockNumberEntry + numberOfBlocksToWrite)/FBLOCKS +1;
+    uint16_t* extents = malloc(sizeof(uint16_t)*nEntries);
+    int lastExtentSize = length - (nEntries-1)* FBLOCKS*BLOCKSZ;
+    int i;
+    for(i = 0; i < nEntries; i++)
+        extents[i] =(uint16_t) (firstExtentN + i);
+
+    union fs_block block;
+    disk_read(1,block.data);
+    struct fs_dirent* entry = &block.dirent[0];
+
+    for(i = 0; i < nEntries; i++) {
+        if (readFileEntry(fname, extents[i], entry) == -1) {
+            if (i == 0) {
+                entry->st = TFILE;
+                entry->ex = (uint16_t)(nEntries - 1);
+            } else {
+                entry->st = TEXT;
+                entry->ex = (uint16_t) i;
+            }
+            for(int j = 0; j < FNAMESZ; j++)
+                entry->name[j] = fname[j];
+            entry->ss = (uint16_t) lastExtentSize;
+            int numberOfBlocksWritten = 0;
+            for(;numberOfBlocksWritten < numberOfBlocksToWrite; numberOfBlocksWritten++) {
+                int blockNumber = allocBlock();
+                disk_write(blockNumber,data+(numberOfBlocksWritten*BLOCKSZ));
+                entry->blocks[numberOfBlocksWritten] = (uint16_t) blockNumber;
+            }
+            writeFileEntry(-1,*entry);
+        } else {
+            int bytesWritten = 0;
+            int blocksInEntry;
+            if(entry->ex == extents[nEntries-1])
+                blocksInEntry = entry->ss/BLOCKSZ +1;
+            else
+                blocksInEntry = FBLOCKS;
+            for(int l = 0; l < blocksInEntry; l++) {
+                disk_read(entry->blocks[blockNumberEntry],block.data);
+                if(l == 0) {
+                    if(numberOfBlocksToWrite == 1)
+                        for(int p = firstBlockOffset; p < length; p++)
+                            block.data[p] = data[p];
+                    else
+                        for(int p = firstBlockOffset; p < BLOCKSZ; p++)
+                            block.data[p] = data[p];
+                    bytesWritten = BLOCKSZ- firstBlockOffset;
+                } else if(l == numberOfBlocksToWrite-1) {
+                    for(int p = 0; p < lastBlockOffset; p++)
+                        block.data[p] = data[bytesWritten + 1 + p];
+                    bytesWritten += lastBlockOffset;
+                } else {
+                    for(int p = 0; p < BLOCKSZ; p++)
+                        block.data[p] = data[p+ bytesWritten + 1];
+                    bytesWritten += BLOCKSZ;
+                }
+            }
+            if(blocksInEntry != FBLOCKS) {
+                for(int p = blocksInEntry; p < FBLOCKS; p++) {
+                    int blockNumber = allocBlock();
+                    disk_write(blockNumber,data+bytesWritten*BLOCKSZ);
+                    entry->blocks[p] = (uint16_t)blockNumber;
+                }
+            }
+
+        }
+    }
 
     return -1; // return writen bytes or -1
 }
