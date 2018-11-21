@@ -533,6 +533,8 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
     int bytesWritten = 0;
     int incompleteBlockIdx;
     int i;
+    if(!length)
+        return length;
     for(i = 0; i < nEntries; i++) {                                                              // um for por escrita de entradas(cada loop <=> uma entrada escrita)
         struct fs_dirent firstFileEntry = entry;
         int firstIndex = readFileEntry(fname,0, &firstFileEntry);
@@ -622,7 +624,6 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
                         disk_write(entry.blocks[currentBlockIdx],block.data);
                         numberOfBlocksWritten++;
                     }
-
                     if(currentBlockIdx < FBLOCKS && numberOfBlocksWritten < numberOfBlocksToWrite - 1) {    // THE NEXT BLOCK TO WRITE DOES NOT EXIST
                         bytesWritten += writeNewBlocks(&entry,data,numberOfBlocksToWrite,numberOfBlocksWritten,bytesWritten,lastBlockOffset);
                         if(!bytesWritten) // NO MORE DISK SPACE
