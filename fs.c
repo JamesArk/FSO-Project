@@ -552,9 +552,21 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
         else {
             // FILE EXISTS
             int entryIdx;
-            if((entryIdx = readFileEntry(fname,extent,&entry)) == -1) //SOMETHING WENT WRONG
+            if((entryIdx = readFileEntry(fname,extent,&entry)) == -1 && !i) //SOMETHING WENT WRONG
                 return -1;
-            incompleteBlockIdx = -1;
+            if(entryIdx == -1){ // ENTRY DOES NOT EXIST
+                for(int j = 0; j < FNAMESZ; j++)
+                    entry.name[j] = fname[j];
+                bytesWritten = writeNewBlocks(&entry, data, numberOfBlocksToWrite, numberOfBlocksWritten, bytesWritten, lastBlockOffset);
+                if(!bytesWritten) // NO MORE DISK SPACE
+                    return 0;
+                numberOfBlocksWritten += bytesWritten/BLOCKSZ+1;
+                entry.st = TEXT;
+                entry.ex = (uint16_t) (firstFileEntry.ex + 1);
+                entry.ss = (uint16_t) length;
+                writeFileEntry(-1,entry);
+            }
+            incompleteBlockIdx = 0;
             if(entry.ex == firstFileEntry.ex) { // WRITING IN THE LAST ENTRY
                 incompleteBlockIdx += entry.ss / BLOCKSZ;
                 if(incompleteBlockIdx == blockNumberEntry && entry.ss != FBLOCKS*BLOCKSZ){ // first block to write is the incomplete block and entry is incomplete
@@ -568,6 +580,10 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
                         bytesWritten += j;
                         disk_write(entry.blocks[incompleteBlockIdx],block.data);
                         if (bytesWritten == length) {
+                            if(firstBlockOffset == entry.ss - incompleteBlockIdx*BLOCKSZ)
+                                entry.ss += bytesWritten;
+                            else
+                                entry.ss += bytesWritten -(entry.ss - incompleteBlockIdx*BLOCKSZ - firstBlockOffset);
                             writeFileEntry(entryIdx,entry);
                             return length;
                         }
