@@ -429,18 +429,21 @@ int fs_read(char *name, char *data, int length, int offset) {
                                 data[l] = block.data[l + firstBlockOffset];
                             bytesRead = length;
                         } else {
-                            for (int l = 0; l < BLOCKSZ - firstBlockOffset; l++)
+                            int l;
+                            for (l = 0; l < BLOCKSZ - firstBlockOffset && offset + bytesRead+l < entry.ss; l++)
                                 data[l] = block.data[l + firstBlockOffset];
-                            bytesRead = BLOCKSZ - firstBlockOffset;
+                            bytesRead = l;
                         }
                     } else if (nBlocksToRead == 1) {
-                        for (int l = 0; l < lastBlockOffset; l++)
+                        int l;
+                        for (l = 0; l < lastBlockOffset && offset + bytesRead+l < entry.ss; l++)
                             data[bytesRead + l] = block.data[l];
-                        bytesRead += lastBlockOffset;
+                        bytesRead += l;
                     } else {
-                        for (int l = 0; l < BLOCKSZ; l++)
+                        int l;
+                        for (l = 0; l < BLOCKSZ && offset + bytesRead+l < entry.ss; l++)
                             data[bytesRead + l] = block.data[l];
-                        bytesRead += BLOCKSZ;
+                        bytesRead += l;
                     }
                     nBlocksToRead--;
                 }
