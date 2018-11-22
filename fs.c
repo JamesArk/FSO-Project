@@ -410,20 +410,52 @@ int fs_read(char *name, char *data, int length, int offset) {
     int firstBlockOffset = offset % BLOCKSZ;                                                    // o offset do primeiro bloco a ser lido.
     int numberOfBlocksToRead = (length + firstBlockOffset)/BLOCKSZ +1;                          // numero de blocos a ler (regras do disco: so pode ser lido um bloco de cada vez).
     int lastBlockOffset = (length + offset) - BLOCKSZ*(blockNOfFile + numberOfBlocksToRead -1); // o offset do ultimo bloco (numero de bytes a ler do ultimo bloco).
+    int incompleteBlockIdx;
     union fs_block block;
     memset(block.data,FREE,BLOCKSZ);
     struct fs_dirent entry = block.dirent[0];
     int bytesRead = 0;
-        if(readFileEntry(fname,0,&entry) == -1)
-                return -1;
-        else {
-            int nBlocksToRead = numberOfBlocksToRead;
-            for (int k = blockNumberEntry; k < FBLOCKS && nBlocksToRead > 0; k++) {
-                if(entry.blocks[k] == 0)
-                    return 0;
-                else {
-                    disk_read(entry.blocks[k], block.data);
-                    if (nBlocksToRead == numberOfBlocksToRead) {
+    int numberOfBlocksRead = 0;
+    if(!length)
+        return 0;
+    if(readFileEntry(fname,0,&entry) == -1)
+        return -1;
+    disk_read(entry.blocks[blockNumberEntry], block.data);
+    incompleteBlockIdx = entry.ss/BLOCKSZ;
+    int fileFinalOffset = entry.ss - (incompleteBlockIdx)*BLOCKSZ;
+    if(offset >= entry.ss)
+        return 0;
+    if(incompleteBlockIdx == 0 || incompleteBlockIdx == blockNumberEntry){
+        int i;
+        for(i = 0; i<fileFinalOffset && i < lastBlockOffset && bytesRead+offset <entry.ss; i++) {
+            data[i] = block.data[firstBlockOffset + i];
+            bytesRead++;
+        }
+        if(bytesRead == fileFinalOffset)
+            return 0;
+        else
+            return bytesRead;
+    }
+    int i;
+    for(i = 0; i< BLOCKSZ-firstBlockOffset && bytesRead<length; i++)
+        data[i] = block.data[firstBlockOffset+i];
+    bytesRead += i;
+    blockNumberEntry++;
+    numberOfBlocksRead++;
+    for (int k = blockNumberEntry; k < FBLOCKS && numberOfBlocksRead< numberOfBlocksToRead; k++) {
+        if(entry.blocks[k] == 0)
+            return 0;
+        disk_read(entry.blocks[k], block.data);
+        int j;
+        if(k != incompleteBlockIdx)
+            for (j = 0; j < BLOCKSZ && bytesRead < length; j++)
+                data[bytesRead++] = block.data[j];
+        else
+            for (j = 0; j < fileFinalOffset && j < lastBlockOffset && bytesRead<length; j++)
+                data[bytesRead++] = block.data[j];
+        numberOfBlocksRead++;
+        }
+            /*if (nBlocksToRead == numberOfBlocksToRead) {
                         if (numberOfBlocksToRead == 1) {
                             for (int l = 0; l < length; l++)
                                 data[l] = block.data[l + firstBlockOffset];
@@ -447,8 +479,8 @@ int fs_read(char *name, char *data, int length, int offset) {
                     }
                     nBlocksToRead--;
                 }
-            }
-        }
+                     */
+
         if((bytesRead + offset) < entry.ss)
             return bytesRead;
         else if((bytesRead +offset) == entry.ss)
@@ -544,7 +576,6 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
         int nBlocksToWrite = numberOfBlocksToWrite;
         int numberOfNewBlocks = 0;
         int entrySizeOffSet = entry.ss % BLOCKSZ;
-
         for (int k = blockNumberEntry;nBlocksToWrite > 0; k++) {
             if (!entry.blocks[k]) {
                 blockNumber = allocBlock();
