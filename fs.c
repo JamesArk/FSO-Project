@@ -521,6 +521,8 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
     int numberOfBlocksWritten;
     int blockNumber;
     int idxEntry = readFileEntry(fname, 0, &entry);
+    if(length == 0)
+        return 0;
     if (idxEntry == -1) {
         entry.st = TFILE;
         entry.ex = 0;
@@ -548,17 +550,18 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
         writeFileEntry(-1, entry);
         return bytesWritten;
     } else {
-        int oldEntrySize = entry.ss;
         int nBlocksToWrite = numberOfBlocksToWrite;
         int currentSize = 0;
         int numberOfNewBlocks = 0;
+        int entrySizeOffSet = entry.ss % BLOCKSZ;
+
         for (int k = blockNumberEntry; k < FBLOCKS && nBlocksToWrite > 0; k++) {
             if (entry.blocks[k] == 0) {
                 blockNumber = allocBlock();
                 if (blockNumber == -1)
                     return 0;
                 numberOfNewBlocks++;
-                entry.blocks[k] = blockNumber;
+                entry.blocks[k] = (uint16_t) blockNumber;
             }
             disk_read(entry.blocks[k], blockWithData.data);
             int l;
@@ -589,15 +592,13 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
             nBlocksToWrite--;
         }
         if (numberOfNewBlocks == 0) {
-            if (oldEntrySize < lastBlockOffset)
-                entry.ss += lastBlockOffset - oldEntrySize;
-        } else {
-            int entrySizeOffSet = oldEntrySize % BLOCKSZ;
-            entry.ss = (uint16_t) (FBLOCKS - entrySizeOffSet + (numberOfNewBlocks - 1) * FBLOCKS + lastBlockOffset);
-        }
-
+            if (entrySizeOffSet < lastBlockOffset)
+                entry.ss += lastBlockOffset-entrySizeOffSet;
+        } else
+            entry.ss += (uint16_t) (BLOCKSZ - entrySizeOffSet + (numberOfNewBlocks - 1) * BLOCKSZ + lastBlockOffset);
         writeFileEntry(idxEntry, entry);
     }
+
     return length;
 }
     /*int blockNOfFile = offset/BLOCKSZ;                                                          // numero do bloco do ficheiro (como se houvesse um vetor de blocos de ficheiro).
