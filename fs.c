@@ -382,8 +382,8 @@ int fs_mount() {
     union fs_block tempBlock;
     for(int i = 0; i < MAXDIRSZ && superB.dir[i]; i++) {
         blockBitMap[superB.dir[i]] = NOT_FREE;
+        disk_read(superB.dir[i], tempBlock.data);
         for (unsigned int j = 0; j < DIRENTS_PER_BLOCK; j++) {
-            disk_read(superB.dir[i], tempBlock.data);
             if (tempBlock.dirent[j].st != TEMPTY)
                 for (int k = 0; k < FBLOCKS && tempBlock.dirent[j].blocks[k]; k++)
                     blockBitMap[tempBlock.dirent[j].blocks[k]] = NOT_FREE;
@@ -406,62 +406,52 @@ int fs_read(char *name, char *data, int length, int offset) {
     // TODO: read file data
 
     int blockNOfFile = offset/BLOCKSZ;                                                          // numero do bloco do ficheiro (como se houvesse um vetor de blocos de ficheiro).
-    uint16_t firstExtentN = (uint16_t) (blockNOfFile / FBLOCKS);                                // numero da primeira extent a ser lida.
     int blockNumberEntry = blockNOfFile % FBLOCKS;                                              // numero do bloco da entrada a ser lida (dirent.blocks[]).
     int firstBlockOffset = offset % BLOCKSZ;                                                    // o offset do primeiro bloco a ser lido.
     int numberOfBlocksToRead = (length + firstBlockOffset)/BLOCKSZ +1;                          // numero de blocos a ler (regras do disco: so pode ser lido um bloco de cada vez).
     int lastBlockOffset = (length + offset) - BLOCKSZ*(blockNOfFile + numberOfBlocksToRead -1); // o offset do ultimo bloco (numero de bytes a ler do ultimo bloco).
-    int nEntries = (blockNumberEntry + numberOfBlocksToRead)/FBLOCKS +1;                        // numero de entradas a ler.
-    uint16_t* extents = malloc(sizeof(uint16_t)*nEntries);                                      // vetor das extents a visitar.
-    int i;
-    for(i = 0; i < nEntries; i++)
-        extents[i] =(uint16_t) (firstExtentN + i);
-
     union fs_block block;
     memset(block.data,FREE,BLOCKSZ);
-    struct fs_dirent* entry = &block.dirent[0];
-
-    for(i = 0; i < nEntries; i++){                                                               // um for por entradas a ler(cada loop <=> uma entrada lida)
-        if(readFileEntry(fname,extents[i],entry) == -1)
-            if(i != 0)
+    struct fs_dirent entry = block.dirent[0];
+    int bytesRead = 0;
+        if(readFileEntry(fname,0,&entry) == -1)
                 return -1;
-            else
-                return 0;
         else {
             int nBlocksToRead = numberOfBlocksToRead;
-            int currentPos = 0;
             for (int k = blockNumberEntry; k < FBLOCKS && nBlocksToRead > 0; k++) {
-                if(entry->blocks[k] == 0)
+                if(entry.blocks[k] == 0)
                     return 0;
                 else {
-                    disk_read(entry->blocks[k], block.data);
+                    disk_read(entry.blocks[k], block.data);
                     if (nBlocksToRead == numberOfBlocksToRead) {
                         if (numberOfBlocksToRead == 1) {
-                            for (int l = 0; l < length; l++) {
+                            for (int l = 0; l < length; l++)
                                 data[l] = block.data[l + firstBlockOffset];
-                                currentPos = l;
-                            }
+                            bytesRead = length;
                         } else {
-                            for (int l = 0; l < BLOCKSZ - firstBlockOffset; l++) {
+                            for (int l = 0; l < BLOCKSZ - firstBlockOffset; l++)
                                 data[l] = block.data[l + firstBlockOffset];
-                                currentPos = l;
-                            }
+                            bytesRead = BLOCKSZ - firstBlockOffset;
                         }
                     } else if (nBlocksToRead == 1) {
                         for (int l = 0; l < lastBlockOffset; l++)
-                            data[currentPos + 1 + l] = block.data[l];
-                        currentPos += lastBlockOffset;
+                            data[bytesRead + l] = block.data[l];
+                        bytesRead += lastBlockOffset;
                     } else {
                         for (int l = 0; l < BLOCKSZ; l++)
-                            data[currentPos + 1 + l] = block.data[l];
-                        currentPos += BLOCKSZ;
+                            data[bytesRead + l] = block.data[l];
+                        bytesRead += BLOCKSZ;
                     }
                     nBlocksToRead--;
                 }
             }
         }
-    }
-    return length;
+        if((bytesRead + offset) < entry.ss)
+            return bytesRead;
+        else if((bytesRead +offset) == entry.ss)
+            return 0;
+        else
+            return -1;
 }
 
 /****************************************************************/
@@ -510,7 +500,7 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
     int blockNOfFile = offset / BLOCKSZ;                                                          // numero do bloco do ficheiro (como se houvesse um vetor de blocos de ficheiro).
     int blockNumberEntry = blockNOfFile % FBLOCKS;                                              // numero do bloco da entrada a ser escrita (dirent.blocks[]).
     int firstBlockOffset = offset % BLOCKSZ;                                                    // o offset do primeiro bloco a ser escrito.
-    int numberOfBlocksToWrite = (length + firstBlockOffset) / BLOCKSZ + 1;                         // numero de blocos a escrever (regras do disco: so pode ser escrito um bloco de cada vez).
+    int numberOfBlocksToWrite = (length + firstBlockOffset) / BLOCKSZ+1;                         // numero de blocos a escrever (regras do disco: so pode ser escrito um bloco de cada vez).
     int lastBlockOffset = (length + offset) - BLOCKSZ * (blockNOfFile + numberOfBlocksToWrite - 1); // o offset do ultimo bloco (numero de bytes a escrever do ultimo bloco).
     int bytesWritten = 0;
     union fs_block block;
@@ -526,9 +516,8 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
     if (idxEntry == -1) {
         entry.st = TFILE;
         entry.ex = 0;
-        for (int i = 0; i < FNAMESZ; i++) {
+        for (int i = 0; i < FNAMESZ; i++)
             entry.name[i] = fname[i];
-        }
         entry.ss = (uint16_t) length;
         for (numberOfBlocksWritten = 0; numberOfBlocksWritten < numberOfBlocksToWrite - 1; numberOfBlocksWritten++) {
             blockNumber = allocBlock();
@@ -541,54 +530,49 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
         blockNumber = allocBlock();
         if (blockNumber == -1)
             return 0;// NO MORE DISK SPACE
-        for (int j = 0; j < lastBlockOffset; j++) {
+        for (int j = 0; j < lastBlockOffset; j++)
             blockWithData.data[j] = data[bytesWritten + j];
-        }
         bytesWritten += lastBlockOffset;
         entry.blocks[(uint16_t) numberOfBlocksWritten] = (uint16_t) blockNumber;
-        disk_write(blockNumber, blockWithData.data);
+        disk_write((unsigned int) blockNumber, blockWithData.data);
         writeFileEntry(-1, entry);
         return bytesWritten;
     } else {
         int nBlocksToWrite = numberOfBlocksToWrite;
-        int currentSize = 0;
         int numberOfNewBlocks = 0;
         int entrySizeOffSet = entry.ss % BLOCKSZ;
 
-        for (int k = blockNumberEntry; k < FBLOCKS && nBlocksToWrite > 0; k++) {
-            if (entry.blocks[k] == 0) {
+        for (int k = blockNumberEntry;nBlocksToWrite > 0; k++) {
+            if (!entry.blocks[k]) {
                 blockNumber = allocBlock();
                 if (blockNumber == -1)
                     return 0;
                 numberOfNewBlocks++;
                 entry.blocks[k] = (uint16_t) blockNumber;
-            }
-            disk_read(entry.blocks[k], blockWithData.data);
+            }else
+                blockNumber = entry.blocks[k];
+            disk_read((unsigned int) blockNumber, blockWithData.data);
             int l;
             if (nBlocksToWrite == numberOfBlocksToWrite) {
                 if (numberOfBlocksToWrite == 1) {
-                    for (l = firstBlockOffset; l < lastBlockOffset; l++) {
+                    for (l = firstBlockOffset; l < lastBlockOffset; l++)
                         blockWithData.data[l] = data[l - firstBlockOffset];
-                    }
-                    currentSize = length;
+                    bytesWritten += length;
                 } else {
-                    for (l = firstBlockOffset; l < BLOCKSZ; l++) {
+                    for (l = firstBlockOffset; l < BLOCKSZ; l++)
                         blockWithData.data[l] = data[l - firstBlockOffset];
-                    }
-                    currentSize = length;
+                    bytesWritten += BLOCKSZ-firstBlockOffset;
                 }
             } else if (nBlocksToWrite == 1) {
-                for (l = 0; l < lastBlockOffset; l++) {
-                    blockWithData.data[l] = data[l + 1 + currentSize];
-                }
-                currentSize += lastBlockOffset;
+                for (l = 0; l < lastBlockOffset; l++)
+                    blockWithData.data[l] = data[l + bytesWritten];
+                bytesWritten += lastBlockOffset;
             } else {
-                for (l = 0; l < BLOCKSZ; l++) {
-                    blockWithData.data[l] = data[l + 1 + currentSize];
-                }
-                currentSize += BLOCKSZ;
+                for (l = 0; l < BLOCKSZ; l++)
+                    blockWithData.data[l] = data[l  + bytesWritten];
+                bytesWritten += BLOCKSZ;
             }
-            disk_write(blockNumber, blockWithData.data);
+            disk_write((unsigned int) blockNumber, blockWithData.data);
             nBlocksToWrite--;
         }
         if (numberOfNewBlocks == 0) {
@@ -598,7 +582,6 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
             entry.ss += (uint16_t) (BLOCKSZ - entrySizeOffSet + (numberOfNewBlocks - 1) * BLOCKSZ + lastBlockOffset);
         writeFileEntry(idxEntry, entry);
     }
-
     return length;
 }
     /*int blockNOfFile = offset/BLOCKSZ;                                                          // numero do bloco do ficheiro (como se houvesse um vetor de blocos de ficheiro).
