@@ -249,15 +249,15 @@ int fs_delete(char *name) {
     memset(block.data,FREE,BLOCKSZ);
     struct fs_dirent* entry = &block.dirent[0];
     int result = 1;
-
-    for(uint16_t i = 0; i < MAXDIRSZ && superB.dir[i]; i++)
-        if(readFileEntry(fname,i,entry) != -1) {
-            result = 0;
-            entry->st = TEMPTY;
-            for(int j = 0; j < FBLOCKS && entry->blocks[j]; j++)
-                freeBlock(entry->blocks[j]);
-        } else
-            return result;
+    int idx;
+    if((idx =readFileEntry(fname,0,entry)) != -1) {
+        result = 0;
+        entry->st = TEMPTY;
+        for(int j = 0; j < FBLOCKS && entry->blocks[j]; j++)
+            freeBlock(entry->blocks[j]);
+        writeFileEntry(idx,*(entry));
+    } else
+        return result;
 
     return result;
 }
