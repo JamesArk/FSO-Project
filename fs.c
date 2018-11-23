@@ -217,6 +217,8 @@ int writeFileEntry(int idx, struct fs_dirent entry) {
             }
         }
         blockNumber = allocBlock();
+        if(blockNumber == -1)
+            return -1;
         disk_read((unsigned int) blockNumber, block.data);
         block.dirent[0] = entry;
         int i;
@@ -289,7 +291,6 @@ void fs_dir() {
       }
     }
 }
-
 /*****************************************************/
 
 void fs_debug() {
@@ -561,6 +562,7 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
         } else                                  // NEW BLOCKS WERE ADDED
             entry.ss += (uint16_t) (BLOCKSZ - entrySizeOffSet + (numberOfNewBlocks - 1) * BLOCKSZ + lastBlockOffset);
     }
-    writeFileEntry(idxEntry, entry);
+    if(writeFileEntry(idxEntry, entry) == -1)
+        return 0;
     return bytesWritten;
 }
