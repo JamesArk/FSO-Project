@@ -224,6 +224,8 @@ int writeFileEntry(int idx, struct fs_dirent entry) {
         int i;
         for(i = 0; i < MAXDIRSZ && superB.dir[i]; i++);
         superB.dir[i] =(uint16_t) blockNumber;
+        union fs_block super =(union fs_block) superB;
+        disk_write(0,super.data);
         disk_write((unsigned int) blockNumber, block.data);
         return readFileEntry(entry.name,entry.ex,&entry);
     } else {
@@ -252,16 +254,17 @@ int fs_delete(char *name) {
     struct fs_dirent* entry = &block.dirent[0];
     int result = 1;
     int idx;
-    if((idx =readFileEntry(fname,0,entry)) != -1) {
-        result = 0;
-        for(int j = 0; j < FBLOCKS && entry->blocks[j]; j++)
-            freeBlock(entry->blocks[j]);
-        memset(entry,FREE, sizeof(struct fs_dirent));
-        writeFileEntry(idx,*(entry));
-    } else
-        return result;
-
-    return result;
+    int ext = 0;
+    while(1) {
+        if ((idx = readFileEntry(fname, (uint16_t) ext++, entry)) != -1) {
+            result = 0;
+            for (int j = 0; j < FBLOCKS && entry->blocks[j]; j++)
+                freeBlock(entry->blocks[j]);
+            entry->st = TEMPTY;
+            writeFileEntry(idx, *(entry));
+        } else
+            return result;
+    }
 }
 
 /*****************************************************/
@@ -493,14 +496,17 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
     int idxEntry = readFileEntry(fname, 0, &entry);                                                     // index da entrada a ser escrita
     if(length == 0) {
         if(readFileEntry(fname,0,&entry) == -1) {
+            int bNumber = allocBlock();
+            if(bNumber == -1)
+                return -1;
             entry.st = TFILE;
             entry.ex = 0;
             for (int i = 0; i < FNAMESZ; i++)
                 entry.name[i] = fname[i];
             entry.ss = 0;
-            int bNumber = allocBlock();
             entry.blocks[0] = (uint16_t) bNumber;
             writeFileEntry(-1, entry);
+
         }
         return 0;
     }                                                                                // Sneaky length is sneaky
@@ -513,15 +519,27 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
         entry.ss = (uint16_t) length;
         for (numberOfBlocksWritten = 0; numberOfBlocksWritten < numberOfBlocksToWrite - 1; numberOfBlocksWritten++) {       // WRITING ALL COMPLETE BLOCKS
             blockNumber = allocBlock();
-            if (blockNumber == -1)
-                return bytesWritten; // NO MORE DISK SPACE
+            if (blockNumber == -1) {
+                if(bytesWritten != 0) {
+                    entry.ss += bytesWritten;
+                    writeFileEntry(idxEntry,entry);
+                    return bytesWritten;
+                }
+                return -1;
+            } // NO MORE DISK SPACE
             disk_write((uint16_t) blockNumber, data + bytesWritten);
             bytesWritten += BLOCKSZ;
             entry.blocks[numberOfBlocksWritten] = (uint16_t) blockNumber;
         }
         blockNumber = allocBlock();
-        if (blockNumber == -1)
-            return bytesWritten;// NO MORE DISK SPACE
+        if (blockNumber == -1) {
+            if(bytesWritten != 0) {
+                entry.ss += bytesWritten;
+                writeFileEntry(idxEntry,entry);
+                return bytesWritten;
+            }
+            return -1;
+        }// NO MORE DISK SPACE
         for (int j = 0; j < lastBlockOffset; j++)     // WRITING LAST BLOCK
             block.data[j] = data[bytesWritten + j];
         bytesWritten += lastBlockOffset;
@@ -534,8 +552,14 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
         for (int k = blockNumberEntry;numberOfBlocksWritten < numberOfBlocksToWrite ; k++) {  // WRITING ALL BLOCKS INCLUDING THE LAST ONE
             if (!entry.blocks[k]) {
                 blockNumber = allocBlock();
-                if (blockNumber == -1)
-                    return bytesWritten;
+                if (blockNumber == -1) {
+                    if(bytesWritten != 0) {
+                        entry.ss += bytesWritten;
+                        writeFileEntry(idxEntry,entry);
+                        return bytesWritten;
+                    }
+                    return -1;
+                }
                 numberOfNewBlocks++;
                 entry.blocks[k] = (uint16_t) blockNumber;
             }else
@@ -571,6 +595,6 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
             entry.ss += (uint16_t) (BLOCKSZ - entrySizeOffSet + (numberOfNewBlocks - 1) * BLOCKSZ + lastBlockOffset);
     }
     if(writeFileEntry(idxEntry, entry) == -1)
-        return 0;
+        return -1;
     return bytesWritten;
 }
