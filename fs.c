@@ -416,8 +416,6 @@ int fs_read(char *name, char *data, int length, int offset) {
     struct fs_dirent entry = block.dirent[0];                                                   // entrada geral pra leitura de entradas
     int bytesRead = 0;
     int numberOfBlocksRead = 0;
-    if(!length)                                                                                 // Sneaky length is sneaky
-        return 0;
     if(readFileEntry(fname,0,&entry) == -1)                                                     // FILE DOES NOT EXIST
         return -1;
     disk_read(entry.blocks[blockNumberEntry], block.data);
@@ -427,8 +425,6 @@ int fs_read(char *name, char *data, int length, int offset) {
     else
         incompleteBlockIdx = entry.ss / BLOCKSZ;
     int fileFinalOffset = entry.ss - (incompleteBlockIdx)*BLOCKSZ;                              // LastBlockOffset mas do ficheiro em vez do ultimo bloco para ser lido.
-    if(offset >= entry.ss)                                                                      // SOME WEIRD STUFF HAPPENED CHECK IT
-        return 0;
     if(incompleteBlockIdx == 0 || incompleteBlockIdx == blockNumberEntry){                      // FIRST BLOCK TO READ IS INCOMPLETE OR ENTRY ONLY HAS ONE BLOCK
         int i;
         for(i = 0; i<fileFinalOffset && i < lastBlockOffset && bytesRead+offset <entry.ss; i++) {   // READ UNTIL THE FILE ENDS OR THE BYTES ASKED TO BE WRITTEN ENDS
@@ -495,8 +491,20 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
     int numberOfBlocksWritten = 0;
     int blockNumber;
     int idxEntry = readFileEntry(fname, 0, &entry);                                                     // index da entrada a ser escrita
-    if(length == 0)                                                                                     // Sneaky length is sneaky
+    if(length == 0) {
+        if(readFileEntry(fname,0,&entry) == -1) {
+            entry.st = TFILE;
+            entry.ex = 0;
+            for (int i = 0; i < FNAMESZ; i++)
+                entry.name[i] = fname[i];
+            entry.ss = 0;
+            int bNumber = allocBlock();
+            entry.blocks[0] = (uint16_t) bNumber;
+            writeFileEntry(-1, entry);
+        }
         return 0;
+    }                                                                                // Sneaky length is sneaky
+
     if (idxEntry == -1) {                                                                               // ENTRY NOT FOUND <=> FILE NOT FOUND
         entry.st = TFILE;
         entry.ex = 0;
@@ -506,14 +514,14 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
         for (numberOfBlocksWritten = 0; numberOfBlocksWritten < numberOfBlocksToWrite - 1; numberOfBlocksWritten++) {       // WRITING ALL COMPLETE BLOCKS
             blockNumber = allocBlock();
             if (blockNumber == -1)
-                return 0; // NO MORE DISK SPACE
+                return bytesWritten; // NO MORE DISK SPACE
             disk_write((uint16_t) blockNumber, data + bytesWritten);
             bytesWritten += BLOCKSZ;
             entry.blocks[numberOfBlocksWritten] = (uint16_t) blockNumber;
         }
         blockNumber = allocBlock();
         if (blockNumber == -1)
-            return 0;// NO MORE DISK SPACE
+            return bytesWritten;// NO MORE DISK SPACE
         for (int j = 0; j < lastBlockOffset; j++)     // WRITING LAST BLOCK
             block.data[j] = data[bytesWritten + j];
         bytesWritten += lastBlockOffset;
@@ -527,7 +535,7 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
             if (!entry.blocks[k]) {
                 blockNumber = allocBlock();
                 if (blockNumber == -1)
-                    return 0;
+                    return bytesWritten;
                 numberOfNewBlocks++;
                 entry.blocks[k] = (uint16_t) blockNumber;
             }else
