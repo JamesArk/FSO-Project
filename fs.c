@@ -411,6 +411,7 @@ int fs_read(char *name, char *data, int length, int offset) {
 
     int blockNOfFile = offset/BLOCKSZ;                                                          // numero do bloco do ficheiro (como se houvesse um vetor de blocos de ficheiro).
     int blockNumberEntry = blockNOfFile % FBLOCKS;                                              // numero do bloco da entrada a ser lida (dirent.blocks[]).
+    int extent = blockNOfFile /FBLOCKS;
     int firstBlockOffset = offset % BLOCKSZ;                                                    // o offset do primeiro bloco a ser lido.
     int numberOfBlocksToRead = (length + firstBlockOffset)/BLOCKSZ +1;                          // numero de blocos a ler (regras do disco: so pode ser lido um bloco de cada vez).
     int lastBlockOffset = (length + offset) - BLOCKSZ*(blockNOfFile + numberOfBlocksToRead -1); // o offset do ultimo bloco (numero de bytes a ler do ultimo bloco).
@@ -418,53 +419,65 @@ int fs_read(char *name, char *data, int length, int offset) {
     union fs_block block;                                                                       // bloco geral pra dados
     memset(block.data,FREE,BLOCKSZ);
     struct fs_dirent entry = block.dirent[0];                                                   // entrada geral pra leitura de entradas
+    struct fs_dirent firstFileEntry = entry;
     int bytesRead = 0;
     int numberOfBlocksRead = 0;
-    if(readFileEntry(fname,0,&entry) == -1)                                                     // FILE DOES NOT EXIST
+    if(readFileEntry(fname,0,&firstFileEntry) == -1)                                                     // FILE DOES NOT EXIST
         return -1;
+    readFileEntry(fname, (uint16_t) extent, &entry);
     disk_read(entry.blocks[blockNumberEntry], block.data);
-
-    if(!(entry.ss % BLOCKSZ))
-        incompleteBlockIdx = entry.ss/BLOCKSZ-1;
+    int fileSize = firstFileEntry.ex * BLOCKSZ + firstFileEntry.ss;  // total size of the file (including extents)
+    if (offset == fileSize)
+        return 0;
+    if (extent == firstFileEntry.ex && (entry.ss % BLOCKSZ))
+        incompleteBlockIdx = entry.ss / BLOCKSZ;            // defining the last block of the last entry
     else
-        incompleteBlockIdx = entry.ss / BLOCKSZ;
-    int fileFinalOffset = entry.ss - (incompleteBlockIdx)*BLOCKSZ;                              // LastBlockOffset mas do ficheiro em vez do ultimo bloco para ser lido.
-    if(incompleteBlockIdx == 0 || incompleteBlockIdx == blockNumberEntry){                      // FIRST BLOCK TO READ IS INCOMPLETE OR ENTRY ONLY HAS ONE BLOCK
-        int i;
-        for(i = 0; i<fileFinalOffset && i < lastBlockOffset && bytesRead+offset <entry.ss; i++) {   // READ UNTIL THE FILE ENDS OR THE BYTES ASKED TO BE WRITTEN ENDS
-            data[i] = block.data[firstBlockOffset + i];
-            bytesRead++;
+        incompleteBlockIdx = entry.ss / BLOCKSZ - 1;
+    int fileFinalOffset = entry.ss - (incompleteBlockIdx) * BLOCKSZ;                              // LastBlockOffset mas do ficheiro em vez do ultimo bloco para ser lido.
+    while(bytesRead != length) {
+        if(blockNumberEntry == FBLOCKS){
+            blockNumberEntry = 0;
+            readFileEntry(fname, (uint16_t) ++extent, &entry);
+            disk_read(entry.blocks[blockNumberEntry],block.data);
         }
-        if(bytesRead == fileFinalOffset)        // FILE IS FINISHED
-            return 0;
-        else
+        if (incompleteBlockIdx == blockNumberEntry) {                      // FIRST BLOCK TO READ IS INCOMPLETE OR ENTRY ONLY HAS ONE BLOCK
+            int i;
+            if(offset +length > fileSize)
+                for (i = firstBlockOffset; i < fileFinalOffset; i++) {   // READ UNTIL THE FILE ENDS
+                    data[i-firstBlockOffset] = block.data[i];
+                    bytesRead++;
+                 }
+            else
+                for (i = firstBlockOffset; i < lastBlockOffset; i++) {   // READ THE BYTES ASKED TO BE READ ENDS
+                    data[i-firstBlockOffset] = block.data[i];
+                    bytesRead++;
+                }
             return bytesRead;                   // FILE IS NOT FINISHED
-    }
-    int i;
-    for(i = 0; i< BLOCKSZ-firstBlockOffset && bytesRead<length; i++)        // FIRST BLOCK TO READ
-        data[i] = block.data[firstBlockOffset+i];
-    bytesRead += i;
-    blockNumberEntry++;
-    numberOfBlocksRead++;
-    for (int k = blockNumberEntry; k < FBLOCKS && numberOfBlocksRead< numberOfBlocksToRead; k++) {  // EVERY BLOCK TO READ UNTIL BYTES == LENGTH OR FILE ENDS
-        if(entry.blocks[k] == 0)    // BLOCK NON EXISTENT FILE ENDS HERE
-            return 0;
-        disk_read(entry.blocks[k], block.data);
-        int j;
-        if(k != incompleteBlockIdx)                             // BLOCK TO BE READ IS INCOMPLETE
-            for (j = 0; j < BLOCKSZ && bytesRead < length; j++)
-                data[bytesRead++] = block.data[j];
-        else                                                    // BLOCK IS TO BE READ FULLY OR UNTIL DATA IS FULL
-            for (j = 0; j < fileFinalOffset && j < lastBlockOffset && bytesRead<length; j++)
-                data[bytesRead++] = block.data[j];
-        numberOfBlocksRead++;
         }
-        if((bytesRead + offset) < entry.ss)                 // se ainda existe ficheiro pra ler
+        int i;
+        for (i = 0; i < BLOCKSZ - firstBlockOffset && bytesRead < length; i++)        // FIRST BLOCK TO READ
+            data[i] = block.data[firstBlockOffset + i];
+        bytesRead += i;
+        blockNumberEntry++;
+        numberOfBlocksRead++;
+        for (; blockNumberEntry < FBLOCKS && numberOfBlocksRead < numberOfBlocksToRead; blockNumberEntry++) {  // EVERY BLOCK TO READ UNTIL BYTES == LENGTH OR FILE ENDS
+            if (entry.blocks[blockNumberEntry] == 0)    // BLOCK NON EXISTENT FILE ENDS HERE
+                return bytesRead;
+            disk_read(entry.blocks[blockNumberEntry], block.data);
+            int j;
+            if (blockNumberEntry != incompleteBlockIdx)                             // BLOCK TO BE READ IS INCOMPLETE
+                for (j = 0; j < BLOCKSZ && bytesRead < length; j++)
+                    data[bytesRead++] = block.data[j];
+            else                                                   // BLOCK IS TO BE READ FULLY OR UNTIL DATA IS FULL
+                for (j = 0; j < fileFinalOffset && j < lastBlockOffset && bytesRead < length; j++)
+                    data[bytesRead++] = block.data[j];
+            numberOfBlocksRead++;
+        }
+        if (bytesRead + offset == fileSize)                 // se ja acabou o ficheiro
             return bytesRead;
-        else if((bytesRead +offset) == entry.ss)            // se acabou o ficheiro
-            return 0;
-        else
-            return -1;                                      // SOMETHING WENT WRONG
+    }
+    return bytesRead;
+
 }
 
 /****************************************************************/
