@@ -478,7 +478,7 @@ int fs_read(char *name, char *data, int length, int offset) {
                     data[bytesRead++] = block.data[j];
             numberOfBlocksRead++;
         }
-        if (bytesRead + offset == fileSize)                 // se ja acabou o ficheiro
+        if (bytesRead + offset == fileSize || blockNumberEntry == FBLOCKS)                 // se ja acabou o ficheiro
             return bytesRead;
     }
     return bytesRead;
