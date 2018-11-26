@@ -261,6 +261,7 @@ int fs_delete(char *name) {
             for (int j = 0; j < FBLOCKS && entry->blocks[j]; j++)
                 freeBlock(entry->blocks[j]);
             entry->st = TEMPTY;
+            memset(entry->name,FREE,FNAMESZ* sizeof(char));
             writeFileEntry(idx, *(entry));
         } else
             return result;
@@ -498,7 +499,7 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
         if(readFileEntry(fname,0,&entry) == -1) {
             int bNumber = allocBlock();
             if(bNumber == -1)
-                return -1;
+                return 0;
             entry.st = TFILE;
             entry.ex = 0;
             for (int i = 0; i < FNAMESZ; i++)
@@ -506,7 +507,6 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
             entry.ss = 0;
             entry.blocks[0] = (uint16_t) bNumber;
             writeFileEntry(-1, entry);
-
         }
         return 0;
     }                                                                                // Sneaky length is sneaky
@@ -525,7 +525,7 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
                     writeFileEntry(idxEntry,entry);
                     return bytesWritten;
                 }
-                return -1;
+                return bytesWritten;
             } // NO MORE DISK SPACE
             disk_write((uint16_t) blockNumber, data + bytesWritten);
             bytesWritten += BLOCKSZ;
@@ -538,7 +538,7 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
                 writeFileEntry(idxEntry,entry);
                 return bytesWritten;
             }
-            return -1;
+            return bytesWritten;
         }// NO MORE DISK SPACE
         for (int j = 0; j < lastBlockOffset; j++)     // WRITING LAST BLOCK
             block.data[j] = data[bytesWritten + j];
@@ -558,7 +558,7 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
                         writeFileEntry(idxEntry,entry);
                         return bytesWritten;
                     }
-                    return -1;
+                    return bytesWritten;
                 }
                 numberOfNewBlocks++;
                 entry.blocks[k] = (uint16_t) blockNumber;
@@ -570,7 +570,7 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
                 if (numberOfBlocksToWrite == 1 || numberOfBlocksWritten == numberOfBlocksToWrite-1) {
                     for (l = firstBlockOffset; l < lastBlockOffset; l++)
                         block.data[l] = data[l - firstBlockOffset];
-                    bytesWritten += length;
+                    bytesWritten +=lastBlockOffset-firstBlockOffset;
                 } else {
                     for (l = firstBlockOffset; l < BLOCKSZ; l++)
                         block.data[l] = data[l - firstBlockOffset];
@@ -579,11 +579,11 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
             } else if (numberOfBlocksWritten == numberOfBlocksToWrite-1) {
                 for (l = 0; l < lastBlockOffset; l++)
                     block.data[l] = data[l + bytesWritten];
-                bytesWritten += lastBlockOffset;
+                bytesWritten += l;
             } else {
                 for (l = 0; l < BLOCKSZ; l++)
                     block.data[l] = data[l  + bytesWritten];
-                bytesWritten += BLOCKSZ;
+                bytesWritten += l;
             }
             disk_write((unsigned int) blockNumber, block.data);
             numberOfBlocksWritten++;
@@ -595,6 +595,6 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
             entry.ss += (uint16_t) (BLOCKSZ - entrySizeOffSet + (numberOfNewBlocks - 1) * BLOCKSZ + lastBlockOffset);
     }
     if(writeFileEntry(idxEntry, entry) == -1)
-        return -1;
+        return 0;
     return bytesWritten;
 }
