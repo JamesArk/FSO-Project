@@ -288,7 +288,7 @@ void fs_dir() {
           if(dirent.st == TFILE) {
               char file_name[FNAMESZ + 1];
               strDecode(file_name, dirent.name, FNAMESZ);
-              uint16_t file_size = (uint16_t) (dirent.ex * BLOCKSZ + dirent.ss);
+              uint16_t file_size = (uint16_t) (dirent.ex *FBLOCKS *BLOCKSZ + dirent.ss);
               uint16_t dirent_number = (uint16_t) (i * DIRENTS_PER_BLOCK + j);
               printf("%u: %s, size: %u bytes\n", dirent_number, file_name, file_size);
           }
@@ -426,21 +426,26 @@ int fs_read(char *name, char *data, int length, int offset) {
         return -1;
     readFileEntry(fname, (uint16_t) extent, &entry);
     disk_read(entry.blocks[blockNumberEntry], block.data);
-    int fileSize = firstFileEntry.ex * BLOCKSZ + firstFileEntry.ss;  // total size of the file (including extents)
+    int fileSize = firstFileEntry.ex *FBLOCKS *BLOCKSZ + firstFileEntry.ss;  // total size of the file (including extents)
     if (offset == fileSize)
         return 0;
-    if (extent == firstFileEntry.ex && (entry.ss % BLOCKSZ))
-        incompleteBlockIdx = entry.ss / BLOCKSZ;            // defining the last block of the last entry
-    else
-        incompleteBlockIdx = entry.ss / BLOCKSZ - 1;
-    int fileFinalOffset = entry.ss - (incompleteBlockIdx) * BLOCKSZ;                              // LastBlockOffset mas do ficheiro em vez do ultimo bloco para ser lido.
     while(bytesRead != length) {
         if(blockNumberEntry == FBLOCKS){
             blockNumberEntry = 0;
             readFileEntry(fname, (uint16_t) ++extent, &entry);
             disk_read(entry.blocks[blockNumberEntry],block.data);
         }
-        if (incompleteBlockIdx == blockNumberEntry) {                      // FIRST BLOCK TO READ IS INCOMPLETE OR ENTRY ONLY HAS ONE BLOCK
+        if (extent == firstFileEntry.ex && (firstFileEntry.ss % BLOCKSZ))
+            incompleteBlockIdx = firstFileEntry.ss / BLOCKSZ;            // defining the last block of the last entry
+        else
+            incompleteBlockIdx = FBLOCKS-1;
+
+        int fileFinalOffset;                              // LastBlockOffset mas do ficheiro em vez do ultimo bloco para ser lido.
+        if(firstFileEntry.ss%BLOCKSZ)
+            fileFinalOffset = firstFileEntry.ss - (firstFileEntry.ss /BLOCKSZ)*BLOCKSZ;
+        else
+            fileFinalOffset = firstFileEntry.ss - (firstFileEntry.ss /BLOCKSZ-1) *BLOCKSZ;
+        if (incompleteBlockIdx == blockNumberEntry && extent == firstFileEntry.ex) {                      // FIRST BLOCK TO READ IS INCOMPLETE OR ENTRY ONLY HAS ONE BLOCK
             int i;
             if(offset +length > fileSize)
                 for (i = firstBlockOffset; i < fileFinalOffset; i++) {   // READ UNTIL THE FILE ENDS
@@ -495,7 +500,7 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
     int blockNOfFile = offset / BLOCKSZ;                                                                // numero do bloco do ficheiro (como se houvesse um vetor de blocos de ficheiro).
     int blockNumberEntry = blockNOfFile % FBLOCKS;                                                      // numero do bloco da entrada a ser escrita (dirent.blocks[]).
     int firstBlockOffset = offset % BLOCKSZ;                                                            // o offset do primeiro bloco a ser escrito.
-    int numberOfBlocksToWrite;                                // numero de blocos a escrever (regras do disco: so pode ser escrito um bloco de cada vez).
+    int numberOfBlocksToWrite;                                                                          // numero de blocos a escrever (regras do disco: so pode ser escrito um bloco de cada vez).
     if(!((length + firstBlockOffset)% BLOCKSZ))
         numberOfBlocksToWrite = (length + firstBlockOffset)/ BLOCKSZ;
     else
