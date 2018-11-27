@@ -258,10 +258,12 @@ int fs_delete(char *name) {
     while(1) {
         if ((idx = readFileEntry(fname, (uint16_t) ext++, entry)) != -1) {
             result = 0;
-            for (int j = 0; j < FBLOCKS && entry->blocks[j]; j++)
+            for (int j = 0; j < FBLOCKS && entry->blocks[j]; j++) {
                 freeBlock(entry->blocks[j]);
+                entry->blocks[j] = FREE;
+            }
             entry->st = TEMPTY;
-            memset(entry->name,FREE,FNAMESZ* sizeof(char));
+            memset(entry,FREE, sizeof(struct fs_dirent));
             writeFileEntry(idx, *(entry));
         } else
             return result;
@@ -493,23 +495,18 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
     // TODO: write data to file
     int blockNOfFile = offset / BLOCKSZ;                                                                // numero do bloco do ficheiro (como se houvesse um vetor de blocos de ficheiro).
     int extent = blockNOfFile/FBLOCKS;                                                                  //
-    int finalExtent = (offset+length)/(BLOCKSZ*FBLOCKS);                                                  // numero da extent onde a escrita ira parar.
     int blockNumberEntry = blockNOfFile % FBLOCKS;                                                      // numero do bloco da entrada a ser escrita (dirent.blocks[]).
     int firstBlockOffset = offset % BLOCKSZ;                                                            // o offset do primeiro bloco a ser escrito.
-    int numberOfBlocksToWrite;                                                                          // numero de blocos a escrever (regras do disco: so pode ser escrito um bloco de cada vez).
-    if(!((length + firstBlockOffset)% BLOCKSZ))
-        numberOfBlocksToWrite = (length + firstBlockOffset)/ BLOCKSZ;
-    else
-        numberOfBlocksToWrite = (length + firstBlockOffset)/ BLOCKSZ+1;
-    int lastBlockOffset = (length + offset) - BLOCKSZ * (blockNOfFile + numberOfBlocksToWrite - 1);     // o offset do ultimo bloco (numero de bytes a escrever do ultimo bloco).
+    int currentBlockOffset = firstBlockOffset;
     int bytesWritten = 0;
     union fs_block block;
     memset(block.data, FREE, BLOCKSZ);
     struct fs_dirent entry = block.dirent[0];
     struct fs_dirent firstFileEntry = entry;
     int numberOfBlocksWritten = 0;
-    int blockNumber;
-    int idxEntry = readFileEntry(fname, 0, &firstFileEntry);                                                     // index da entrada a ser escrita
+    int blockNumber = 0;
+    int firstEntryIdx = readFileEntry(fname, 0, &firstFileEntry);
+    int idxEntry = firstEntryIdx;                                                     // index da entrada a ser escrita
     if(length == 0) {
         if(idxEntry == -1) {
             int bNumber = allocBlock();
@@ -521,7 +518,8 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
                 entry.name[i] = fname[i];
             entry.ss = 0;
             entry.blocks[0] = (uint16_t) bNumber;
-            writeFileEntry(-1, entry);
+            if(writeFileEntry(idxEntry, entry) == -1)
+                freeBlock(bNumber);
         }
         return 0;
     }                                                                                // Sneaky length is sneaky
@@ -531,128 +529,120 @@ int fs_write(char *name, char *data, int length, int offset) { // length max val
         for (int i = 0; i < FNAMESZ; i++)
             entry.name[i] = fname[i];
         entry.ss = (uint16_t) length;
-        for (numberOfBlocksWritten = 0; numberOfBlocksWritten < numberOfBlocksToWrite - 1; numberOfBlocksWritten++) {       // WRITING ALL COMPLETE BLOCKS
-            blockNumber = allocBlock();
-            if (blockNumber == -1) {
-                if(bytesWritten != 0) {
-                    entry.ss += bytesWritten;
-                    writeFileEntry(idxEntry,entry);
-                    return bytesWritten;
-                }
-                return bytesWritten;
-            } // NO MORE DISK SPACE
-            disk_write((uint16_t) blockNumber, data + bytesWritten);
-            bytesWritten += BLOCKSZ;
-            entry.blocks[numberOfBlocksWritten] = (uint16_t) blockNumber;
-        }
         blockNumber = allocBlock();
-        if (blockNumber == -1) {
-            if(bytesWritten != 0) {
-                entry.ss += bytesWritten;
-                writeFileEntry(idxEntry,entry);
-                return bytesWritten;
-            }
-            return bytesWritten;
-        }// NO MORE DISK SPACE
-        for (int j = 0; j < lastBlockOffset; j++)     // WRITING LAST BLOCK
-            block.data[j] = data[bytesWritten + j];
-        bytesWritten += lastBlockOffset;
-        entry.blocks[(uint16_t) numberOfBlocksWritten] = (uint16_t) blockNumber;
-        disk_write((unsigned int) blockNumber, block.data);
-    } else if((idxEntry =readFileEntry(fname, (uint16_t) extent, &entry)) != -1){
-        // ENTRY FOUND AND FILE EXISTS
-        int fileSize = firstFileEntry.ex*FBLOCKS*BLOCKSZ + firstFileEntry.ss;
-        blockNumber = entry.blocks[blockNumberEntry++];
-        if(blockNumber == 0)
-            blockNumber = allocBlock();
-        else if(blockNumber == -1)
-            return bytesWritten;
-        disk_read((unsigned int) blockNumber, block.data);
-        for(int i = firstBlockOffset; i< BLOCKSZ && i< length; i++)
-            block.data[i] = data[bytesWritten++];
-        disk_write((unsigned int) blockNumber, block.data);
-        numberOfBlocksWritten++;
-
-        for(;blockNumberEntry<FBLOCKS && numberOfBlocksWritten < numberOfBlocksToWrite -1 && bytesWritten < length; blockNumberEntry++){
-            blockNumber = entry.blocks[blockNumberEntry];
-            if(blockNumber == 0) {
-                blockNumber = allocBlock();
-                if (blockNumber == -1)
-                    break;
-            }
-            for(int i = 0; i < BLOCKSZ; i++)
-                block.data[i] = data[i];
-            bytesWritten+=BLOCKSZ;
-            numberOfBlocksWritten++;
-        }
-
-
-
-        if(bytesWritten == length || blockNumber == -1){
-            if(offset+bytesWritten > fileSize){
-                entry.ss += (uint16_t) (offset + bytesWritten - fileSize);
-                writeFileEntry(idxEntry,entry);
-                extent = 0;
-                idxEntry = readFileEntry(fname,extent++,&entry);
-                for(;idxEntry != -1; idxEntry = readFileEntry(fname,extent++,&entry)) {
-                    writeFileEntry(idxEntry,entry);
-                }
-
-            }
-            writeFileEntry(idxEntry,entry);
-            return bytesWritten;
-        }
-
-    }
-    if(writeFileEntry(idxEntry, entry) == -1)
-        return 0;
-    return bytesWritten;
-}
-/*if (numberOfNewBlocks == 0) {           // NO NEW COMPLETE BLOCKS WERE ADDED
-            if (entrySizeOffSet < lastBlockOffset)      // SOME BYTES WERE ADDED
-                entry.ss += lastBlockOffset-entrySizeOffSet;
-        } else                                  // NEW BLOCKS WERE ADDED
-            entry.ss += (uint16_t) (BLOCKSZ - entrySizeOffSet + (numberOfNewBlocks - 1) * BLOCKSZ + lastBlockOffset);*/
-/*
-        int numberOfNewBlocks = 0;
-        for (int k = blockNumberEntry;numberOfBlocksWritten < numberOfBlocksToWrite ; k++) {  // WRITING ALL BLOCKS INCLUDING THE LAST ONE
-            if (!entry.blocks[k]) {
-                blockNumber = allocBlock();
-                if (blockNumber == -1) {
-                    if(bytesWritten != 0) {
-                        entry.ss += bytesWritten;
-                        writeFileEntry(idxEntry,entry);
-                        return bytesWritten;
-                    }
-                    return bytesWritten;
-                }
-                numberOfNewBlocks++;
-                entry.blocks[k] = (uint16_t) blockNumber;
-            }else
-                blockNumber = entry.blocks[k];
-            disk_read((unsigned int) blockNumber, block.data);
-            int l;
-            if (!numberOfBlocksWritten) {
-                if (numberOfBlocksToWrite == 1 || numberOfBlocksWritten == numberOfBlocksToWrite-1) {
-                    for (l = firstBlockOffset; l < lastBlockOffset; l++)
-                        block.data[l] = data[l - firstBlockOffset];
-                    bytesWritten +=lastBlockOffset-firstBlockOffset;
-                } else {
-                    for (l = firstBlockOffset; l < BLOCKSZ; l++)
-                        block.data[l] = data[l - firstBlockOffset];
-                    bytesWritten += BLOCKSZ-firstBlockOffset;
-                }
-            } else if (numberOfBlocksWritten == numberOfBlocksToWrite-1) {
-                for (l = 0; l < lastBlockOffset; l++)
-                    block.data[l] = data[l + bytesWritten];
-                bytesWritten += l;
-            } else {
-                for (l = 0; l < BLOCKSZ; l++)
-                    block.data[l] = data[l  + bytesWritten];
-                bytesWritten += l;
-            }
+        while(bytesWritten<length){
+            if (blockNumber == -1)     // NO MORE DISK SPACE
+                break;
+            while(currentBlockOffset<BLOCKSZ && bytesWritten<length)
+                block.data[currentBlockOffset++] = data[bytesWritten++];
+            entry.blocks[numberOfBlocksWritten++] = (uint16_t) blockNumber;
             disk_write((unsigned int) blockNumber, block.data);
-            numberOfBlocksWritten++;
+            if(currentBlockOffset == BLOCKSZ) {
+                currentBlockOffset = 0;
+                blockNumber = allocBlock();
+                memset(block.data,FREE,sizeof(block.data));
+            }
         }
+        if(blockNumber == -1){
+            entry.ss = (uint16_t) bytesWritten;
+        }
+        if(writeFileEntry(idxEntry,entry) == -1) {
+            for (int i = 0; i < FBLOCKS; i++) {
+                freeBlock(entry.blocks[i]);
+                entry.blocks[i] = FREE;
+            }
+            return 0;
+        }
+        return bytesWritten;
+    } else {
+        // FILE EXISTS
+        idxEntry = readFileEntry(fname, (uint16_t) extent, &entry);
+        int fileSize = firstFileEntry.ex * FBLOCKS*BLOCKSZ + firstFileEntry.ss;
+        if(extent == 0)
+            entry.st = TFILE;
+        else
+            entry.st = TEXT;
+        if(idxEntry ==-1)
+            entry.ex = (uint16_t) extent;
+        for (int i = 0; i < FNAMESZ; i++)
+            entry.name[i] = fname[i];
+        blockNumber = entry.blocks[blockNumberEntry++];
+        while(bytesWritten<length){
+            if(blockNumber == 0){
+                blockNumber = allocBlock();
+                if(blockNumber != -1)
+                    entry.blocks[blockNumberEntry++] = (uint16_t) blockNumber;
+            }
+            if(blockNumber == -1)
+                break; // to be continued
+            disk_read((unsigned int) blockNumber, block.data);
+            while(currentBlockOffset<BLOCKSZ && bytesWritten<length)
+                block.data[currentBlockOffset++] = data[bytesWritten++];
+            disk_write((unsigned int) blockNumber, block.data);
+            if(currentBlockOffset == BLOCKSZ) {
+                currentBlockOffset = 0;
+                blockNumber = entry.blocks[blockNumberEntry];
+            }
+            if(blockNumberEntry == FBLOCKS && bytesWritten < length){
+                if(bytesWritten+offset > fileSize) {
+                    int futureSS = firstFileEntry.ss + bytesWritten + offset - fileSize;
+                    if(futureSS > FBLOCKS*BLOCKSZ)
+                        entry.ss = (uint16_t) (futureSS - FBLOCKS*BLOCKSZ);
+                    else
+                        entry.ss = (uint16_t) (futureSS);
+                }
+                int lastExtentSize = entry.ss;
+                if (writeFileEntry(idxEntry, entry) == -1) {
+                    for (int i = 0; i<FBLOCKS; i++) {
+                        freeBlock(entry.blocks[i]);
+                        entry.blocks[i] = FREE;
+                    }
+                    return 0;
+                }
+                int tempExtent = 0;
+                int tempIdx = readFileEntry(fname, (uint16_t) tempExtent, &entry);
+                while(tempIdx != idxEntry && tempIdx != -1 && tempExtent < extent) {
+                    entry.ss = (uint16_t) lastExtentSize;
+                    writeFileEntry(tempIdx,entry);
+                    tempIdx = readFileEntry(fname, (uint16_t) tempExtent++, &entry);
+                }
+                memset(&entry,FREE,sizeof(struct fs_dirent));
+                idxEntry = readFileEntry(fname, (uint16_t) ++extent, &entry);
+                if(idxEntry == -1) {
+                    firstFileEntry.ex = (uint16_t) extent;
+                    writeFileEntry(firstEntryIdx,firstFileEntry);
+                        entry.st = TEXT;
+                    entry.ex = (uint16_t) extent;
+                    for (int i = 0; i < FNAMESZ; i++)
+                        entry.name[i] = fname[i];
+                }
+                currentBlockOffset = 0;
+                blockNumberEntry = 0;
+                blockNumber = entry.blocks[blockNumberEntry];
+            }
+        }
+        if(bytesWritten+offset > fileSize) {
+            int futureSS = firstFileEntry.ss + bytesWritten + offset - fileSize;
+            if(futureSS > FBLOCKS*BLOCKSZ)
+                entry.ss = (uint16_t) (futureSS - FBLOCKS*BLOCKSZ);
+            else
+                entry.ss = (uint16_t) futureSS;
+        }
+        int lastExtentSize = entry.ss;
+        if (writeFileEntry(idxEntry, entry) == -1) {
+            for (int i = 0; i< FBLOCKS; i++) {
+                freeBlock(entry.blocks[i]);
+                entry.blocks[i] = FREE;
+            }
+            return 0;  
+        }
+        int tempExtent = 0;
+        int tempIdx = readFileEntry(fname, (uint16_t) tempExtent, &entry);
+        while(tempIdx != idxEntry && tempIdx != -1 && tempExtent < extent) {
+            entry.ss = (uint16_t) lastExtentSize;
+            writeFileEntry(tempIdx,entry);
+            tempIdx = readFileEntry(fname, (uint16_t) tempExtent++, &entry);
+        }
+        return bytesWritten;
     }
-         */
+}
